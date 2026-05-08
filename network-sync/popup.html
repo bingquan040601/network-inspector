@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Network Sync</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <!-- ── Shared Header ──────────────────────────────────────────────────── -->
+    <div class="header">
+      <label class="toggle" title="开启/关闭捕获">
+        <input type="checkbox" id="enableToggle" />
+        <span class="slider"></span>
+      </label>
+      <span class="header-title">Network Sync</span>
+      <span
+        id="connStatus"
+        style="font-size: 11px; color: #adb5bd; font-family: monospace"
+        >⏳</span
+      >
+      <div class="view-tabs">
+        <button class="view-tab active" id="tabCapture">
+          Capture <span class="badge" id="reqCount">0</span>
+        </button>
+        <button class="view-tab" id="tabMocks">
+          Mocks <span class="badge" id="mockCount">0</span>
+        </button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn-icon" id="detachBtn" title="在独立窗口中打开">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+        >
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" y1="14" x2="21" y2="3" />
+        </svg>
+      </button>
+      <button class="btn-ghost" id="clearBtn">Clear</button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+       CAPTURE VIEW
+  ═══════════════════════════════════════════════════════════════════════════ -->
+    <div id="captureView">
+      <div class="toolbar">
+        <input
+          type="text"
+          id="urlFilter"
+          class="filter-input"
+          placeholder="Filter URL…"
+        />
+        <select id="methodFilter" class="filter-select">
+          <option value="">All</option>
+          <option>GET</option>
+          <option>POST</option>
+          <option>PUT</option>
+          <option>DELETE</option>
+          <option>PATCH</option>
+        </select>
+        <button
+          class="btn-reload"
+          id="reloadPageBtn"
+          title="刷新页面（重新注入捕获脚本）"
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          刷新页面
+        </button>
+      </div>
+
+      <div class="body">
+        <div class="list-panel" id="listOuter">
+          <div class="empty" id="emptyState">
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z" />
+              <path d="M12 8v4l3 3" />
+            </svg>
+            <p>开启后将自动捕获网络请求</p>
+          </div>
+          <div id="requestList"></div>
+        </div>
+
+        <!-- Detail panel (right) -->
+        <div class="detail-panel hidden" id="detailPanel">
+          <div class="detail-head">
+            <span class="method-badge" id="dMethod"></span>
+            <span class="detail-url" id="dUrl"></span>
+            <button class="btn-icon" id="closeDetail">✕</button>
+          </div>
+          <div class="detail-meta">
+            <span>Status: <strong id="dStatus"></strong></span>
+            <span>Duration: <strong id="dDuration"></strong></span>
+            <span>Type: <strong id="dKind"></strong></span>
+            <span>Time: <strong id="dTime"></strong></span>
+            <span id="dMockedBadge" class="mock-badge hidden">MOCKED</span>
+          </div>
+          <div class="tabs" id="captureTabs">
+            <button class="tab active" data-tab="reqHeaders">
+              Req Headers
+            </button>
+            <button class="tab" data-tab="reqBody">Req Body</button>
+            <button class="tab" data-tab="respBody">Resp Body</button>
+          </div>
+          <div class="tab-content" id="tabContent"></div>
+          <div class="detail-footer">
+            <button class="btn-primary" id="mockItBtn">⚡ Mock It</button>
+          </div>
+        </div>
+
+        <!-- No selection placeholder -->
+        <div class="no-detail" id="noDetail">
+          <svg
+            width="40"
+            height="40"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 9h18M9 21V9" />
+          </svg>
+          <p>点击左侧请求查看详情</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+       MOCKS VIEW
+  ═══════════════════════════════════════════════════════════════════════════ -->
+    <div id="mocksView" class="hidden">
+      <div class="toolbar">
+        <button class="btn-accent" id="newMockBtn">＋ New Rule</button>
+        <div class="spacer"></div>
+        <button class="btn-ghost" id="exportBtn">Export JSON</button>
+        <label class="btn-ghost import-label">
+          Import JSON
+          <input
+            type="file"
+            id="importInput"
+            accept=".json"
+            style="display: none"
+          />
+        </label>
+      </div>
+
+      <div class="body">
+        <!-- Mock list (left) -->
+        <div class="list-panel" id="mockListOuter">
+          <div class="empty" id="mockEmptyState">
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4m0 4h.01" />
+            </svg>
+            <p>暂无 Mock 规则<br />点击"＋ New Rule"创建</p>
+          </div>
+          <div id="mockList"></div>
+        </div>
+
+        <!-- Mock editor (right) -->
+        <div class="detail-panel" id="mockEditorPanel">
+          <div class="no-detail" id="editorPlaceholder">
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.2"
+            >
+              <path
+                d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+              />
+              <path
+                d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+              />
+            </svg>
+            <p>选择一条规则或新建</p>
+          </div>
+
+          <form id="mockForm" class="mock-form hidden" autocomplete="off">
+            <div class="mock-form-scroll">
+              <div class="form-row">
+                <label class="form-label"
+                  >规则名称 <span class="hint">（可选）</span></label
+                >
+                <input
+                  type="text"
+                  id="fName"
+                  class="form-input"
+                  placeholder="例：User list mock"
+                />
+              </div>
+
+              <div class="form-row-cols">
+                <div class="form-col grow">
+                  <label class="form-label"
+                    >URL Pattern <span class="required">*</span></label
+                  >
+                  <input
+                    type="text"
+                    id="fUrlPattern"
+                    class="form-input"
+                    placeholder="/api/users 或完整 URL"
+                  />
+                </div>
+                <div class="form-col" style="width: 108px">
+                  <label class="form-label">匹配方式</label>
+                  <select id="fMatchType" class="form-select">
+                    <option value="contains">contains</option>
+                    <option value="exact">exact</option>
+                    <option value="regex">regex</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row-cols">
+                <div class="form-col" style="width: 130px">
+                  <label class="form-label">Method</label>
+                  <select id="fMethod" class="form-select">
+                    <option value="*">* (任意)</option>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                    <option value="PATCH">PATCH</option>
+                  </select>
+                </div>
+                <div class="form-col" style="width: 130px">
+                  <label class="form-label">延迟 (ms)</label>
+                  <input
+                    type="number"
+                    id="fDelay"
+                    class="form-input"
+                    value="0"
+                    min="0"
+                    max="30000"
+                  />
+                </div>
+              </div>
+
+              <div class="form-separator">Response</div>
+
+              <div class="form-row-cols">
+                <div class="form-col" style="width: 100px">
+                  <label class="form-label">Status Code</label>
+                  <input
+                    type="number"
+                    id="fStatus"
+                    class="form-input"
+                    value="200"
+                    min="100"
+                    max="599"
+                  />
+                </div>
+                <div class="form-col grow">
+                  <label class="form-label">Status Text</label>
+                  <input
+                    type="text"
+                    id="fStatusText"
+                    class="form-input"
+                    value="OK"
+                  />
+                </div>
+              </div>
+
+              <div class="form-row">
+                <label class="form-label"
+                  >Response Headers
+                  <span class="hint">（JSON 格式）</span></label
+                >
+                <textarea
+                  id="fRespHeaders"
+                  class="form-textarea"
+                  rows="2"
+                  placeholder='{"Content-Type": "application/json"}'
+                ></textarea>
+              </div>
+
+              <div class="form-row">
+                <div class="form-label-row">
+                  <label class="form-label">Response Body</label>
+                  <button type="button" class="btn-tiny" id="formatBodyBtn">
+                    Format JSON
+                  </button>
+                </div>
+                <textarea
+                  id="fRespBody"
+                  class="form-textarea body-textarea"
+                  rows="7"
+                  placeholder="响应体内容..."
+                ></textarea>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" class="btn-ghost" id="cancelMockBtn">
+                Cancel
+              </button>
+              <button type="button" class="btn-primary" id="saveMockBtn">
+                Save Rule
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
